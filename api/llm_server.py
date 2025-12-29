@@ -325,13 +325,31 @@ def query_with_threshold(query_text: str, session_id: str = "default"):
     """Query with similarity threshold check, content verification, and conversation memory."""
     global index_store, llm, query_engine, conversation_memory
     
+    # Detect general/greeting queries that don't need RAG
+    general_patterns = ['hi', 'hello', 'hey', 'good morning', 'good evening', 'how are you', 
+                        'what can you do', 'who are you', 'help', 'thanks', 'thank you', 
+                        'bye', 'goodbye', 'ok', 'okay', 'yes', 'no', 'sure']
+    query_lower = query_text.lower().strip()
+    
+    is_general = any(query_lower == p or query_lower.startswith(p + ' ') or query_lower.startswith(p + '?') 
+                     for p in general_patterns)
+    
+    if is_general:
+        # Use direct LLM for greetings/general chat
+        logger.info(f"General query detected, using direct LLM")
+        response = llm.complete(f"You are Gamatrain AI, a friendly educational assistant. Respond briefly and helpfully to: {query_text}")
+        return {
+            "response": str(response),
+            "confidence": "direct",
+            "max_score": 1.0
+        }
+    
     # Build context from conversation history
     history = conversation_memory[session_id]
     
     # Detect follow-up questions
     enhanced_query = query_text
     follow_up_words = ["that", "this", "it", "those", "these"]
-    query_lower = query_text.lower()
     
     is_follow_up = history and any(word in query_lower.split() for word in follow_up_words)
     
@@ -355,9 +373,11 @@ def query_with_threshold(query_text: str, session_id: str = "default"):
     nodes = retriever.retrieve(enhanced_query)
     
     if not nodes:
+        # Fallback to direct LLM
+        response = llm.complete(query_text)
         return {
-            "response": "I don't have information about that in my knowledge base.",
-            "confidence": "low",
+            "response": str(response),
+            "confidence": "direct",
             "max_score": 0
         }
     
@@ -365,9 +385,11 @@ def query_with_threshold(query_text: str, session_id: str = "default"):
     
     # Check if score meets threshold
     if max_score < SIMILARITY_THRESHOLD:
-        logger.info(f"Low similarity score ({max_score:.2f}), returning 'don't know'")
+        logger.info(f"Low similarity score ({max_score:.2f}), falling back to direct LLM")
+        # Fallback to direct LLM instead of "don't know"
+        response = llm.complete(f"You are Gamatrain AI, an educational assistant. Answer this question: {query_text}")
         return {
-            "response": "I don't have information about that in my knowledge base.",
+            "response": str(response),
             "confidence": "low",
             "max_score": max_score
         }
