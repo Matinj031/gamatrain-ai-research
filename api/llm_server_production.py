@@ -36,10 +36,14 @@ from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 # Configuration
 # =============================================================================
 # Model Provider Settings
-# Option 1: OpenRouter (free tier available)
-# Option 2: Together AI
-# Option 3: Groq (fast & free)
-PROVIDER = os.getenv("PROVIDER", "groq")  # groq, openrouter, together
+# Option 1: ollama (local - recommended for development)
+# Option 2: groq (cloud - FREE and fast)
+# Option 3: openrouter (cloud - some free models)
+PROVIDER = os.getenv("PROVIDER", "ollama")  # ollama, groq, openrouter
+
+# Ollama Settings (LOCAL - no internet needed)
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gamatrain-qwen")  # Your fine-tuned model
 
 # Groq Settings (FREE and FAST!)
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
@@ -82,12 +86,44 @@ MAX_MEMORY_TURNS = 5
 async def call_llm_api(prompt: str, max_tokens: int = 1024):
     """Call LLM API based on configured provider."""
     
-    if PROVIDER == "groq":
+    if PROVIDER == "ollama":
+        return await call_ollama_api(prompt, max_tokens)
+    elif PROVIDER == "groq":
         return await call_groq_api(prompt, max_tokens)
     elif PROVIDER == "openrouter":
         return await call_openrouter_api(prompt, max_tokens)
     else:
         return "Error: No valid provider configured"
+
+
+async def call_ollama_api(prompt: str, max_tokens: int = 1024):
+    """Call local Ollama API."""
+    
+    payload = {
+        "model": OLLAMA_MODEL,
+        "prompt": prompt,
+        "stream": False,
+        "options": {
+            "num_predict": max_tokens
+        }
+    }
+    
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.post(
+                f"{OLLAMA_BASE_URL}/api/generate",
+                json=payload
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                return result.get("response", "")
+            else:
+                logger.error(f"Ollama API error: {response.status_code} - {response.text}")
+                return f"Error: {response.status_code}"
+    except Exception as e:
+        logger.error(f"Ollama API error: {e}")
+        return f"Error: {str(e)}"
 
 
 async def call_groq_api(prompt: str, max_tokens: int = 1024):
@@ -174,6 +210,13 @@ async def stream_huggingface_api(prompt: str, max_tokens: int = 1024):
     import asyncio
     
     try:
+        # For Ollama, use native streaming
+        if PROVIDER == "ollama":
+            async for chunk in stream_ollama_api(prompt, max_tokens):
+                yield chunk
+            return
+        
+        # For cloud APIs (Groq, OpenRouter), simulate streaming
         full_response = await call_llm_api(prompt, max_tokens)
         
         # Simulate streaming by yielding chunks with delay
@@ -181,13 +224,46 @@ async def stream_huggingface_api(prompt: str, max_tokens: int = 1024):
         for i, word in enumerate(words):
             token = word + " " if i < len(words) - 1 else word
             yield f"data: {json.dumps({'token': token, 'done': False})}\n\n"
-            # Add small delay for typing effect (30ms per word)
+            # Add small delay for typing effect (80ms per word)
             await asyncio.sleep(0.08)
         
         yield f"data: {json.dumps({'token': '', 'done': True})}\n\n"
         
     except Exception as e:
         logger.error(f"Stream error: {e}")
+        yield f"data: {json.dumps({'error': str(e), 'done': True})}\n\n"
+
+
+async def stream_ollama_api(prompt: str, max_tokens: int = 1024):
+    """Native streaming from Ollama."""
+    
+    payload = {
+        "model": OLLAMA_MODEL,
+        "prompt": prompt,
+        "stream": True,
+        "options": {
+            "num_predict": max_tokens
+        }
+    }
+    
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            async with client.stream(
+                "POST",
+                f"{OLLAMA_BASE_URL}/api/generate",
+                json=payload
+            ) as response:
+                async for line in response.aiter_lines():
+                    if line:
+                        try:
+                            data = json.loads(line)
+                            token = data.get("response", "")
+                            done = data.get("done", False)
+                            yield f"data: {json.dumps({'token': token, 'done': done})}\n\n"
+                        except json.JSONDecodeError:
+                            continue
+    except Exception as e:
+        logger.error(f"Ollama stream error: {e}")
         yield f"data: {json.dumps({'error': str(e), 'done': True})}\n\n"
 
 
@@ -476,19 +552,23 @@ class ChatRequest(BaseModel):
 # =============================================================================
 @app.get("/")
 async def root():
+    model_name = OLLAMA_MODEL if PROVIDER == "ollama" else (GROQ_MODEL if PROVIDER == "groq" else OPENROUTER_MODEL)
     return {
         "status": "online",
         "service": "Gamatrain AI (Production)",
-        "model": GROQ_MODEL if PROVIDER == "groq" else OPENROUTER_MODEL,
+        "provider": PROVIDER,
+        "model": model_name,
         "rag_enabled": index_store is not None
     }
 
 
 @app.get("/health")
 async def health():
+    model_name = OLLAMA_MODEL if PROVIDER == "ollama" else (GROQ_MODEL if PROVIDER == "groq" else OPENROUTER_MODEL)
     return {
         "status": "healthy",
-        "model": GROQ_MODEL if PROVIDER == "groq" else OPENROUTER_MODEL,
+        "provider": PROVIDER,
+        "model": model_name,
         "rag_ready": index_store is not None
     }
 
