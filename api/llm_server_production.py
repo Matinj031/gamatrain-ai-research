@@ -11,6 +11,7 @@ Requirements:
 """
 
 import os
+import re
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -577,16 +578,33 @@ async def process_query(query_text: str, session_id: str = "default", use_rag: b
     global index_store, conversation_memory
     
     query_lower = query_text.lower().strip()
+    query_normalized = re.sub(r"[^\w\s]", " ", query_lower)
+    query_normalized = " ".join(query_normalized.split())
+    
     history = conversation_memory[session_id]
-    
-    # Detect general greetings (no rewrite needed)
-    general_patterns = ['hi', 'hello', 'hey', 'good morning', 'how are you', 
-                        'what can you do', 'who are you', 'thanks', 'bye']
-    is_general = any(query_lower == p or query_lower.startswith(p + ' ') for p in general_patterns)
-    
+
+    # Detect general greetings
+    general_patterns = ['hi', 'hello', 'hey', 'good morning', 'good evening', 'how are you',
+                        'what can you do', 'who are you', 'help', 'thanks', 'thank you',
+                        'bye', 'goodbye', 'ok', 'okay', 'yes', 'no', 'sure', "i'm not sure",
+                        'سلام', 'درود', 'صبح بخیر', 'عصر بخیر', 'شب بخیر', 'چطوری', 'حالت چطوره',
+                        'خسته نباشی', 'مرسی', 'ممنون', 'خداحافظ']
+    is_general = any(query_normalized == p or query_normalized.startswith(p + ' ') for p in general_patterns)
+
     if is_general:
         prompt = f"You are Gamatrain AI, a friendly educational assistant. Respond briefly: {query_text}"
         return prompt, None
+
+    # Check for explicit follow-up phrases
+    follow_up_words = ["that", "this", "it", "those", "these", "more", "explain", "elaborate", "details", "different", "same", "similar", "compare", "versus", "vs"]
+    follow_up_phrases = ["tell me more", "explain more", "can you explain", "what about", "how about", "also", "continue", "go on"]
+    is_follow_up_check = history and (any(word in query_normalized.split() for word in follow_up_words) or any(phrase in query_lower for phrase in follow_up_phrases))
+    
+    link_keywords = ["link", "links", "source", "sources", "reference", "references", "منبع", "منابع", "لینک", "لینکها", "آدرس", "رفرنس"]
+    request_keywords = ["send", "share", "give", "provide", "show", "please", "about", "درباره", "بده", "ارسال", "بفرست", "میخوام", "لطفا"]
+    explicit_link_request = any(k in query_normalized for k in link_keywords) and any(r in query_normalized for r in request_keywords)
+    
+    allow_sources = explicit_link_request or (not is_general and not is_follow_up_check)
     
     # Check for explicit follow-up phrases
     explicit_followup_phrases = ["tell me more", "explain more", "can you explain", "more details", 
@@ -625,7 +643,7 @@ Provide additional details and explanations:"""
     logger.info(f"Query: {query_text}, Rewritten: {search_query}, Follow-up: {is_follow_up}")
     
     # Use RAG with the rewritten query
-    if use_rag and index_store:
+    if allow_sources and use_rag and index_store:
         retriever = index_store.as_retriever(similarity_top_k=3)
         nodes = retriever.retrieve(search_query)  # Use rewritten query for search
         
@@ -661,9 +679,33 @@ async def stream_query(query_text: str, session_id: str = "default", use_rag: bo
     # Process query
     prompt, topic = await process_query(query_text, session_id, use_rag)
     
-    # Get sources if RAG was used
+    # Detect if sources should be allowed
+    q_low = query_text.lower().strip()
+    q_norm = re.sub(r"[^\w\s]", " ", q_low)
+    q_norm = " ".join(q_norm.split())
+    
+    hist = conversation_memory[session_id]
+    
+    gen_pats = ['hi', 'hello', 'hey', 'good morning', 'good evening', 'how are you',
+                'what can you do', 'who are you', 'help', 'thanks', 'thank you',
+                'bye', 'goodbye', 'ok', 'okay', 'yes', 'no', 'sure', "i'm not sure",
+                'سلام', 'درود', 'صبح بخیر', 'عصر بخیر', 'شب بخیر', 'چطوری', 'حالت چطوره',
+                'خسته نباشی', 'مرسی', 'ممنون', 'خداحافظ']
+    is_gen = any(q_norm == p or q_norm.startswith(p + ' ') for p in gen_pats)
+    
+    f_words = ["that", "this", "it", "those", "these", "more", "explain", "elaborate", "details", "different", "same", "similar", "compare", "versus", "vs"]
+    f_phrases = ["tell me more", "explain more", "can you explain", "what about", "how about", "also", "continue", "go on"]
+    is_foll = hist and (any(word in q_norm.split() for word in f_words) or any(phrase in q_low for phrase in f_phrases))
+    
+    l_kws = ["link", "links", "source", "sources", "reference", "references", "منبع", "منابع", "لینک", "لینکها", "آدرس", "رفرنس"]
+    r_kws = ["send", "share", "give", "provide", "show", "please", "about", "درباره", "بده", "ارسال", "بفرست", "میخوام", "لطفا"]
+    expl_req = any(k in q_norm for k in l_kws) and any(r in q_norm for r in r_kws)
+    
+    allow_sources = expl_req or (not is_gen and not is_foll)
+    
+    # Get sources if RAG was used and allowed
     sources = []
-    if use_rag and index_store:
+    if allow_sources and use_rag and index_store:
         try:
             retriever = index_store.as_retriever(similarity_top_k=3)
             nodes = retriever.retrieve(query_text)

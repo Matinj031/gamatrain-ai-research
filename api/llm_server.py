@@ -335,17 +335,22 @@ async def stream_query(query_text: str, session_id: str = "default", use_rag: bo
     """Stream response token by token using Server-Sent Events with source citations."""
     import json
     import asyncio
-    
+    import re
+
     query_lower = query_text.lower().strip()
+    query_normalized = re.sub(r\"[^\w\s]\", \" \", query_lower)
+    query_normalized = \" \".join(query_normalized.split())
     nodes = []  # Initialize nodes to avoid reference error
     sources = []  # Store source links
     
     # Detect general/greeting queries that don't need RAG
-    general_patterns = ['hi', 'hello', 'hey', 'good morning', 'good evening', 'how are you', 
-                        'what can you do', 'who are you', 'help', 'thanks', 'thank you', 
-                        'bye', 'goodbye', 'ok', 'okay', 'yes', 'no', 'sure', "i'm not sure"]
+    general_patterns = ['hi', 'hello', 'hey', 'good morning', 'good evening', 'how are you',
+                        'what can you do', 'who are you', 'help', 'thanks', 'thank you',
+                        'bye', 'goodbye', 'ok', 'okay', 'yes', 'no', 'sure', "i'm not sure",
+                        'سلام', 'درود', 'صبح بخیر', 'عصر بخیر', 'شب بخیر', 'چطوری', 'حالت چطوره',
+                        'خسته نباشی', 'مرسی', 'ممنون', 'خداحافظ']
     
-    is_general = any(query_lower == p or query_lower.startswith(p + ' ') or query_lower.startswith(p + '?') 
+    is_general = any(query_normalized == p or query_normalized.startswith(p + ' ')
                      for p in general_patterns)
     
     # Get conversation history
@@ -359,9 +364,14 @@ async def stream_query(query_text: str, session_id: str = "default", use_rag: bo
                          "how does it", "why is it", "when is it", "where is it", "different from"]
     
     is_follow_up = history and (
-        any(word in query_lower.split() for word in follow_up_words) or
+        any(word in query_normalized.split() for word in follow_up_words) or
         any(phrase in query_lower for phrase in follow_up_phrases)
     )
+
+    link_keywords = ["link", "links", "source", "sources", "reference", "references", "منبع", "منابع", "لینک", "لینکها", "لینکها", "آدرس", "رفرنس"]
+    request_keywords = ["send", "share", "give", "provide", "show", "please", "about", "درباره", "بده", "ارسال", "بفرست", "میخوام", "میخوام", "میخواهم", "میخواهم", "لطفا"]
+    explicit_link_request = any(k in query_normalized for k in link_keywords) and any(r in query_normalized for r in request_keywords)
+    allow_sources = explicit_link_request or (not is_general and not is_follow_up)
     
     try:
         # First, check if the answer might be in recent conversation history
@@ -527,6 +537,8 @@ If the information above doesn't contain the answer, say so honestly."""
             # Extract source links from nodes
             if nodes and max([n.score for n in nodes]) >= SIMILARITY_THRESHOLD:
                 sources = extract_source_links(nodes)
+                if not allow_sources:
+                    sources = []
             
             if not nodes or max([n.score for n in nodes]) < SIMILARITY_THRESHOLD:
                 # For follow-ups with no RAG match, use conversation history
@@ -656,10 +668,14 @@ def query_with_threshold(query_text: str, session_id: str = "default"):
     global index_store, llm, query_engine, conversation_memory
     
     # Detect general/greeting queries that don't need RAG
-    general_patterns = ['hi', 'hello', 'hey', 'good morning', 'good evening', 'how are you', 
-                        'what can you do', 'who are you', 'help', 'thanks', 'thank you', 
-                        'bye', 'goodbye', 'ok', 'okay', 'yes', 'no', 'sure']
+    general_patterns = ['hi', 'hello', 'hey', 'good morning', 'good evening', 'how are you',
+                        'what can you do', 'who are you', 'help', 'thanks', 'thank you',
+                        'bye', 'goodbye', 'ok', 'okay', 'yes', 'no', 'sure', "i'm not sure",
+                        'سلام', 'درود', 'صبح بخیر', 'عصر بخیر', 'شب بخیر', 'چطوری', 'حالت چطوره',
+                        'خسته نباشی', 'مرسی', 'ممنون', 'خداحافظ']
     query_lower = query_text.lower().strip()
+    query_normalized = re.sub(r"[^\w\s]", " ", query_lower)
+    query_normalized = " ".join(query_normalized.split())
     
     # Build context from conversation history
     history = conversation_memory[session_id]
@@ -672,11 +688,11 @@ def query_with_threshold(query_text: str, session_id: str = "default"):
                          "how does it", "why is it", "when is it", "where is it", "different from"]
     
     is_follow_up = history and (
-        any(word in query_lower.split() for word in follow_up_words) or
+        any(word in query_normalized.split() for word in follow_up_words) or
         any(phrase in query_lower for phrase in follow_up_phrases)
     )
     
-    is_general = any(query_lower == p or query_lower.startswith(p + ' ') or query_lower.startswith(p + '?') 
+    is_general = any(query_normalized == p or query_normalized.startswith(p + ' ') 
                      for p in general_patterns)
     
     if is_general and not is_follow_up:
@@ -1298,9 +1314,35 @@ async def query_html(request: QueryRequest):
             result = query_with_threshold(request.query, request.session_id)
             response_text = result["response"]
             
-            # Get sources
+            # Get sources with suppression logic
             sources = []
-            if index_store:
+            
+            # Detect if sources should be allowed
+            q_lower = request.query.lower().strip()
+            q_norm = re.sub(r"[^\w\s]", " ", q_lower)
+            q_norm = " ".join(q_norm.split())
+            
+            gen_patterns = ['hi', 'hello', 'hey', 'good morning', 'good evening', 'how are you',
+                            'what can you do', 'who are you', 'help', 'thanks', 'thank you',
+                            'bye', 'goodbye', 'ok', 'okay', 'yes', 'no', 'sure', "i'm not sure",
+                            'سلام', 'درود', 'صبح بخیر', 'عصر بخیر', 'شب بخیر', 'چطوری', 'حالت چطوره',
+                            'خسته نباشی', 'مرسی', 'ممنون', 'خداحافظ']
+            
+            is_gen = any(q_norm == p or q_norm.startswith(p + ' ') for p in gen_patterns)
+            
+            # Check for follow-up indicators
+            hist = conversation_memory[request.session_id]
+            follow_words = ["that", "this", "it", "those", "these", "more", "explain", "elaborate", "details", "different", "same", "similar", "compare", "versus", "vs"]
+            follow_phrases = ["tell me more", "explain more", "can you explain", "what about", "how about", "also", "continue", "go on"]
+            is_foll = hist and (any(word in q_lower.split() for word in follow_words) or any(phrase in q_lower for phrase in follow_phrases))
+            
+            link_kws = ["link", "links", "source", "sources", "reference", "references", "منبع", "منابع", "لینک", "لینکها", "آدرس", "رفرنس"]
+            req_kws = ["send", "share", "give", "provide", "show", "please", "about", "درباره", "بده", "ارسال", "بفرست", "میخوام", "لطفا"]
+            expl_link_req = any(k in q_norm for k in link_kws) and any(r in q_norm for r in req_kws)
+            
+            allow_srcs = expl_link_req or (not is_gen and not is_foll)
+
+            if allow_srcs and index_store:
                 retriever = index_store.as_retriever(similarity_top_k=3)
                 nodes = retriever.retrieve(request.query)
                 if nodes and max([n.score for n in nodes]) >= SIMILARITY_THRESHOLD:
