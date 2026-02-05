@@ -313,7 +313,7 @@ def format_sources_text(sources):
         return ""
     
     text = "\n\n" + "="*60 + "\n"
-    text += "📚 منابع مرتبط / Related Sources\n"
+    text += "📚Related Sources\n"
     text += "="*60 + "\n\n"
     
     for i, source in enumerate(sources, 1):
@@ -323,10 +323,6 @@ def format_sources_text(sources):
         elif source["type"] == "school":
             text += f"{i}. 🏫 {source['title']}\n"
             text += f"   🔗 {source['url']}\n\n"
-    
-    text += "="*60 + "\n"
-    text += "💡 کلیک روی لینک‌ها برای مطالعه بیشتر\n"
-    text += "="*60
     
     return text
 
@@ -1275,30 +1271,6 @@ async def search_schools(q: str, limit: int = 5):
         logger.error(f"School search error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
-def format_sources_html(sources):
-    """Format sources as HTML for frontend rendering."""
-    if not sources:
-        return ""
-    
-    html = '<div class="sources-section" style="margin-top: 20px; padding: 15px; background: #f5f5f5; border-radius: 8px;">'
-    html += '<h3 style="margin: 0 0 10px 0;">📚 منابع مرتبط / Related Sources</h3>'
-    html += '<ul style="list-style: none; padding: 0; margin: 0;">'
-    
-    for source in sources:
-        if source["type"] == "blog":
-            html += f'<li style="margin: 8px 0;">'
-            html += f'📝 <a href="{source["url"]}" target="_blank" style="color: #0066cc; text-decoration: none;">{source["title"]}</a>'
-            html += f'</li>'
-        elif source["type"] == "school":
-            html += f'<li style="margin: 8px 0;">'
-            html += f'🏫 <a href="{source["url"]}" target="_blank" style="color: #0066cc; text-decoration: none;">{source["title"]}</a>'
-            html += f'</li>'
-    
-    html += '</ul></div>'
-    return html
-
-
 @app.post("/v1/query/html")
 async def query_html(request: QueryRequest):
     """
@@ -1350,8 +1322,6 @@ async def query_html(request: QueryRequest):
             
             # Format as HTML
             html_response = f'<div class="response-text">{response_text}</div>'
-            if sources:
-                html_response += format_sources_html(sources)
             
             return {
                 "query": request.query,

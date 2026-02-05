@@ -562,27 +562,10 @@ def extract_source_links(nodes, base_url: str = "https://gamatrain.com"):
 
 
 def format_sources_text(sources):
-    """Format sources as readable text for LLM response."""
-    if not sources:
-        return ""
-    
-    text = "\n\n" + "="*60 + "\n"
-    text += "📚 منابع مرتبط / Related Sources\n"
-    text += "="*60 + "\n\n"
-    
-    for i, source in enumerate(sources, 1):
-        if source["type"] == "blog":
-            text += f"{i}. 📝 {source['title']}\n"
-            text += f"   🔗 {source['url']}\n\n"
-        elif source["type"] == "school":
-            text += f"{i}. 🏫 {source['title']}\n"
-            text += f"   🔗 {source['url']}\n\n"
-    
-    text += "="*60 + "\n"
-    text += "💡 کلیک روی لینک‌ها برای مطالعه بیشتر\n"
-    text += "="*60
-    
-    return text
+    """Don't format sources as text - frontend will handle all source display."""
+    # Return empty string - frontend will use the sources metadata
+    # to display the blue-bordered "Related Sources" section
+    return ""
 
 
 # =============================================================================
@@ -598,12 +581,10 @@ async def process_query(query_text: str, session_id: str = "default", use_rag: b
     
     history = conversation_memory[session_id]
 
-    # Detect general greetings
+    # Detect general greetings (English only)
     general_patterns = ['hi', 'hello', 'hey', 'good morning', 'good evening', 'how are you',
                         'what can you do', 'who are you', 'help', 'thanks', 'thank you',
-                        'bye', 'goodbye', 'ok', 'okay', 'yes', 'no', 'sure', "i'm not sure",
-                        'سلام', 'درود', 'صبح بخیر', 'عصر بخیر', 'شب بخیر', 'چطوری', 'حالت چطوره',
-                        'خسته نباشی', 'مرسی', 'ممنون', 'خداحافظ']
+                        'bye', 'goodbye', 'ok', 'okay', 'yes', 'no', 'sure', "i'm not sure"]
     is_general = any(query_normalized == p or query_normalized.startswith(p + ' ') for p in general_patterns)
 
     if is_general:
@@ -615,8 +596,8 @@ async def process_query(query_text: str, session_id: str = "default", use_rag: b
     follow_up_phrases = ["tell me more", "explain more", "can you explain", "what about", "how about", "also", "continue", "go on"]
     is_follow_up_check = history and (any(word in query_normalized.split() for word in follow_up_words) or any(phrase in query_lower for phrase in follow_up_phrases))
     
-    link_keywords = ["link", "links", "source", "sources", "reference", "references", "منبع", "منابع", "لینک", "لینکها", "آدرس", "رفرنس"]
-    request_keywords = ["send", "share", "give", "provide", "show", "please", "about", "درباره", "بده", "ارسال", "بفرست", "میخوام", "لطفا"]
+    link_keywords = ["link", "links", "source", "sources", "reference", "references"]
+    request_keywords = ["send", "share", "give", "provide", "show", "please", "about"]
     explicit_link_request = any(k in query_normalized for k in link_keywords) and any(r in query_normalized for r in request_keywords)
     
     allow_sources = explicit_link_request or (not is_general and not is_follow_up_check)
@@ -703,17 +684,15 @@ async def stream_query(query_text: str, session_id: str = "default", use_rag: bo
     
     gen_pats = ['hi', 'hello', 'hey', 'good morning', 'good evening', 'how are you',
                 'what can you do', 'who are you', 'help', 'thanks', 'thank you',
-                'bye', 'goodbye', 'ok', 'okay', 'yes', 'no', 'sure', "i'm not sure",
-                'سلام', 'درود', 'صبح بخیر', 'عصر بخیر', 'شب بخیر', 'چطوری', 'حالت چطوره',
-                'خسته نباشی', 'مرسی', 'ممنون', 'خداحافظ']
+                'bye', 'goodbye', 'ok', 'okay', 'yes', 'no', 'sure', "i'm not sure"]
     is_gen = any(q_norm == p or q_norm.startswith(p + ' ') for p in gen_pats)
     
     f_words = ["that", "this", "it", "those", "these", "more", "explain", "elaborate", "details", "different", "same", "similar", "compare", "versus", "vs"]
     f_phrases = ["tell me more", "explain more", "can you explain", "what about", "how about", "also", "continue", "go on"]
     is_foll = hist and (any(word in q_norm.split() for word in f_words) or any(phrase in q_low for phrase in f_phrases))
     
-    l_kws = ["link", "links", "source", "sources", "reference", "references", "منبع", "منابع", "لینک", "لینکها", "آدرس", "رفرنس"]
-    r_kws = ["send", "share", "give", "provide", "show", "please", "about", "درباره", "بده", "ارسال", "بفرست", "میخوام", "لطفا"]
+    l_kws = ["link", "links", "source", "sources", "reference", "references"]
+    r_kws = ["send", "share", "give", "provide", "show", "please", "about"]
     expl_req = any(k in q_norm for k in l_kws) and any(r in q_norm for r in r_kws)
     
     allow_sources = expl_req or (not is_gen and not is_foll)
@@ -738,7 +717,7 @@ async def stream_query(query_text: str, session_id: str = "default", use_rag: bo
                 )
                 
                 # For school search queries (looking for specific schools)
-                school_search_keywords = ["school", "university", "college", "academy", "institute", "مدرسه", "دانشگاه"]
+                school_search_keywords = ["school", "university", "college", "academy", "institute"]
                 is_school_search = any(keyword in query_text.lower() for keyword in school_search_keywords)
                 
                 if query_about_gamatrain:
