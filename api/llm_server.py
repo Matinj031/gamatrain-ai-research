@@ -24,10 +24,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from llama_index.core import VectorStoreIndex, Document, Settings, StorageContext, load_index_from_storage
+from llama_index.core import VectorStoreIndex, Document, StorageContext, load_index_from_storage
 from llama_index.core.prompts import PromptTemplate
 from llama_index.llms.ollama import Ollama
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+
+# Global embedding model
+embed_model = None
 
 # =============================================================================
 # Configuration
@@ -63,12 +66,11 @@ MAX_MEMORY_TURNS = 5  # Keep last 5 Q&A pairs
 # =============================================================================
 def setup_llm():
     """Initialize LLM and embedding model."""
-    global llm
+    global llm, embed_model
     logger.info(f"Setting up LLM: {MODEL_NAME}")
     
     llm = Ollama(model=MODEL_NAME, base_url=OLLAMA_BASE_URL, request_timeout=120.0)
-    Settings.llm = llm
-    Settings.embed_model = HuggingFaceEmbedding(model_name="intfloat/multilingual-e5-large")
+    embed_model = HuggingFaceEmbedding(model_name="intfloat/multilingual-e5-large")
     
     return llm
 
@@ -192,58 +194,47 @@ def fetch_documents():
 
 def build_index(documents: List[Document]):
     """Build or load RAG index."""
-    global query_engine, index_store
+    global query_engine, index_store, embed_model
     
-    # Custom QA prompt to reduce hallucination
-    qa_prompt = PromptTemplate(
-        "Context information is below.\n"
-        "---------------------\n"
-        "{context_str}\n"
-        "---------------------\n"
-        "IMPORTANT: Answer the question ONLY using the context above. "
-        "If the answer is NOT in the context, say 'I don't have information about that in my knowledge base.' "
-        "Do NOT make up or invent any information.\n\n"
-        "Question: {query_str}\n"
-        "Answer: "
-    )
+    # CRITICAL: Make sure embed_model is set before loading/building index
+    if embed_model is None:
+        logger.error("Embed model not initialized! Call setup_embeddings() first.")
+        raise RuntimeError("Embed model not initialized")
     
-    # Try to load existing index
-    if os.path.exists(os.path.join(STORAGE_DIR, "docstore.json")):
+    # Check if index already exists
+    index_path = os.path.join(STORAGE_DIR, "docstore.json")
+    
+    if os.path.exists(index_path):
         try:
-            logger.info("Loading existing index from storage...")
-            storage_context = StorageContext.from_defaults(persist_dir=STORAGE_DIR)
-            index_store = load_index_from_storage(storage_context)
-            query_engine = index_store.as_query_engine(
-                similarity_top_k=3,
-                response_mode="compact",
-                text_qa_template=qa_prompt,
+            logger.info("📦 Loading existing index from storage...")
+            storage_context = StorageContext.from_defaults(
+                persist_dir=STORAGE_DIR,
+                embed_model=embed_model
             )
-            logger.info("Index loaded successfully")
-            return query_engine
+            index_store = load_index_from_storage(
+                storage_context,
+                embed_model=embed_model
+            )
+            query_engine = index_store.as_retriever(similarity_top_k=3)
+            logger.info("✅ Index loaded successfully (no rebuild needed)")
+            return  # Exit early - no need to rebuild
         except Exception as e:
-            logger.warning(f"Could not load index: {e}, rebuilding...")
+            logger.warning(f"⚠️  Could not load index: {e}")
+            logger.info("🔨 Will rebuild index from scratch...")
+    else:
+        logger.info("📝 No existing index found, building new one...")
     
-    # Build new index
-    logger.info(f"Building new index with {len(documents)} documents...")
-    index_store = VectorStoreIndex.from_documents(documents)
-    
-    # Persist index
-    index_store.storage_context.persist(persist_dir=STORAGE_DIR)
-    logger.info(f"Index saved to {STORAGE_DIR}")
-    
-    query_engine = index_store.as_query_engine(
-        similarity_top_k=3,
-        response_mode="compact",
-        text_qa_template=qa_prompt,
+    # Build new index (only if load failed or index doesn't exist)
+    logger.info(f"🔨 Building index with {len(documents)} documents...")
+    logger.info("Using HuggingFace embedding model (intfloat/multilingual-e5-large)")
+    index_store = VectorStoreIndex.from_documents(
+        documents, 
+        embed_model=embed_model,
+        show_progress=True
     )
-    
-    return query_engine
-
-
-# Similarity threshold for RAG
-SIMILARITY_THRESHOLD = float(os.getenv("SIMILARITY_THRESHOLD", "0.65"))  # Lowered from 0.75
-
-
+    index_store.storage_context.persist(persist_dir=STORAGE_DIR)
+    query_engine = index_store.as_retriever(similarity_top_k=3)
+    logger.info("✅ Index built and saved successfully")
 def filter_external_links(text: str) -> str:
     """Remove external links from response, keep only gamatrain.com links."""
     import re
@@ -414,7 +405,7 @@ User's follow-up question: {query_text}
 Continue explaining in detail:"""
             
             # Stream directly without RAG
-            async with httpx.AsyncClient(timeout=120.0) as client:
+            async with httpx.AsyncClient(timeout=120.0, verify=False) as client:
                 async with client.stream(
                     "POST",
                     f"{OLLAMA_BASE_URL}/api/generate",
@@ -488,7 +479,7 @@ If the information above doesn't contain the answer, say so honestly."""
 {query_text}"""
                 
                 # Skip RAG retrieval, go directly to LLM
-                async with httpx.AsyncClient(timeout=120.0) as client:
+                async with httpx.AsyncClient(timeout=120.0, verify=False) as client:
                     async with client.stream(
                         "POST",
                         f"{OLLAMA_BASE_URL}/api/generate",
@@ -582,7 +573,7 @@ Answer: """
             prompt = query_text
         
         # Stream from Ollama
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=120.0, verify=False) as client:
             async with client.stream(
                 "POST",
                 f"{OLLAMA_BASE_URL}/api/generate",
