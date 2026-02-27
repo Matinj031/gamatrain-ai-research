@@ -2,22 +2,28 @@
 
 ## Summary
 
-Successfully integrated FAISS vector search for fast school lookup with proper metadata including slugs for correct URL generation.
+Successfully integrated FAISS vector search for fast school lookup with proper metadata including slugs for correct URL generation. Files reorganized according to team feedback for better project structure.
 
-## Files Added
+## Files Organization
 
-### Core Files
-- **build_faiss_store.py** - Builds FAISS index from SQL Server data
-- **faiss_search_integration.py** - Provides search functionality and API endpoints
+### Modules (`modules/`)
+Shared logic used by both scripts and API endpoints:
 - **rap_sql_schools_rag.py** - Fetches school data and generates embeddings
+- **faiss_search_integration.py** - Provides search functionality and API endpoints
 - **smart_response_formatter.py** - Formats responses based on question type
 
-### Documentation
+### Scripts (`scripts/`)
+Standalone/manual or scheduled tasks:
+- **build_faiss_store.py** - Builds FAISS index from SQL Server data
+
+### Documentation (`docs/faiss/`)
+Centralized documentation for better maintenance:
 - **FAISS_SETUP_GUIDE.md** - Complete setup and usage guide
 - **FAISS_QUICK_START.md** - Quick reference for common tasks
+- **CHANGELOG_FAISS.md** - This file
 
-## Files Modified
-- **llm_server_production.py** - Integrated FAISS search into main query endpoint
+### API (`api/`)
+- **llm_server_production.py** - Updated with FAISS integration and proper imports
 
 ## Key Features
 
@@ -62,15 +68,15 @@ Main query endpoint with automatic FAISS integration
 ```
 SQL Server (Schools table)
     ↓
-rap_sql_schools_rag.py (fetch data + generate embeddings)
+modules/rap_sql_schools_rag.py (fetch data + generate embeddings)
     ↓
-build_faiss_store.py (build index)
+scripts/build_faiss_store.py (build index)
     ↓
-faiss_schools.index + faiss_schools_meta.pkl
+faiss_schools.index + faiss_schools_meta.pkl (root directory)
     ↓
-faiss_search_integration.py (search functions)
+modules/faiss_search_integration.py (search functions)
     ↓
-llm_server_production.py (API endpoints)
+api/llm_server_production.py (API endpoints)
 ```
 
 ## Metadata Structure
@@ -100,13 +106,42 @@ llm_server_production.py (API endpoints)
 5. ✅ SQL query missing LocalName column
 6. ✅ Related Sources showing wrong schools
 7. ✅ URL format incorrect
+8. ✅ File organization according to team feedback
 
 ## Deployment Steps
 
-1. Build index: `python api/build_faiss_store.py`
-2. Copy files: `cp api/faiss_schools* .`
-3. Start server: `python api/llm_server_production.py`
-4. Verify: Check `/v1/search/faiss/health`
+1. Build index: `cd scripts && python build_faiss_store.py`
+2. Start server: `python api/llm_server_production.py`
+3. Verify: Check `/v1/search/faiss/health`
+
+## Team Feedback Addressed
+
+### sanaderi's Review Comments:
+
+1. **rap_sql_schools_rag.py** → Moved to `modules/`
+   - Purpose: Fetch school data from SQL Server, Generate embeddings
+   - Placement: Shared logic used by both scripts and API endpoints
+
+2. **build_faiss_store.py** → Moved to `scripts/`
+   - Purpose: Build FAISS index from school embeddings
+   - Placement: Standalone/manual or scheduled task
+
+3. **faiss_search_integration.py** → Moved to `modules/`
+   - Purpose: Provide search functionality using FAISS index
+   - Placement: API routes import functions from here
+
+4. **smart_response_formatter.py** → Moved to `modules/`
+   - Purpose: Format responses based on question type
+   - Placement: Shared utility for multiple API endpoints
+
+5. **Documentation** → Moved to `docs/faiss/`
+   - Purpose: Centralized documentation for better maintenance
+   - Files: CHANGELOG_FAISS.md, FAISS_QUICK_START.md, FAISS_SETUP_GUIDE.md
+
+### Import Updates:
+- Updated all import statements to use proper module paths
+- Added sys.path.append() for cross-directory imports
+- Updated build script to save files to root directory
 
 ## Future Improvements
 
@@ -123,9 +158,11 @@ llm_server_production.py (API endpoints)
 - Backup index files before rebuilding
 - Server automatically loads index on startup
 - Metadata must match the format expected by faiss_search_integration.py
+- All files now properly organized according to team structure guidelines
 
 ---
 
-**Date:** February 25, 2026
-**Version:** 1.0
+**Date:** February 27, 2026
+**Version:** 1.1 (Reorganized)
 **Status:** Production Ready
+**Review:** Addressed team feedback from sanaderi

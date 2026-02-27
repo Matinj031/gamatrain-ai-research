@@ -6,22 +6,41 @@ This guide explains how to build and use the FAISS index for fast school search 
 
 ## Architecture
 
-The FAISS integration consists of three main components:
+The FAISS integration consists of four main components organized by purpose:
+
+### Modules (`modules/`)
+Shared logic used by both scripts and API endpoints:
 
 1. **rap_sql_schools_rag.py** - Fetches school data from SQL Server and generates embeddings
-2. **build_faiss_store.py** - Builds the FAISS index and metadata files
-3. **faiss_search_integration.py** - Provides search functionality for the API
-4. **smart_response_formatter.py** - Formats responses based on question type
+2. **faiss_search_integration.py** - Provides search functionality for the API
+3. **smart_response_formatter.py** - Formats responses based on question type
+
+### Scripts (`scripts/`)
+Standalone/manual or scheduled tasks:
+
+4. **build_faiss_store.py** - Builds the FAISS index and metadata files
+
+### API (`api/`)
+5. **llm_server_production.py** - Main server with FAISS integration
 
 ## Files Structure
 
 ```
-api/
+modules/
 ├── rap_sql_schools_rag.py          # Data fetching & embedding generation
-├── build_faiss_store.py            # Index builder
 ├── faiss_search_integration.py     # Search functions
-├── smart_response_formatter.py     # Response formatting
+└── smart_response_formatter.py     # Response formatting
+
+scripts/
+└── build_faiss_store.py            # Index builder
+
+api/
 └── llm_server_production.py        # Main server with FAISS integration
+
+docs/faiss/
+├── FAISS_SETUP_GUIDE.md           # This file
+├── FAISS_QUICK_START.md            # Quick reference
+└── CHANGELOG_FAISS.md              # Change history
 
 Root directory (after build):
 ├── faiss_schools.index             # FAISS vector index
@@ -41,7 +60,7 @@ Root directory (after build):
 
 ### Step 1: Verify SQL Connection
 
-The system fetches school data from SQL Server. Ensure your connection string is configured in `rap_sql_schools_rag.py`:
+The system fetches school data from SQL Server. Ensure your connection string is configured in `modules/rap_sql_schools_rag.py`:
 
 ```python
 engine = create_engine(
@@ -51,10 +70,10 @@ engine = create_engine(
 
 ### Step 2: Build the Index
 
-Run the build script from the `api` directory:
+Run the build script from the `scripts` directory:
 
 ```bash
-cd api
+cd scripts
 python build_faiss_store.py
 ```
 
@@ -63,9 +82,9 @@ This will:
 2. Fetch all schools from SQL Server
 3. Generate embeddings for each school
 4. Build FAISS index with 384-dimensional vectors
-5. Save two files:
-   - `faiss_schools.index` - Vector index
-   - `faiss_schools_meta.pkl` - Metadata dictionary
+5. Save two files to root directory:
+   - `../faiss_schools.index` - Vector index
+   - `../faiss_schools_meta.pkl` - Metadata dictionary
 
 **Expected Output:**
 ```
@@ -75,21 +94,11 @@ Model loaded ✔️
 [OK] Got 22922 schools
 [OK] Vector shape: (22922, 384)
 [OK] Metadata count: 22922
-[OK] FAISS index saved to faiss_schools.index
-[OK] Metadata saved to faiss_schools_meta.pkl
+[OK] FAISS index saved to ../faiss_schools.index
+[OK] Metadata saved to ../faiss_schools_meta.pkl
 
 [SUCCESS] FAISS index built with 22922 schools
 Dimension: 384
-```
-
-### Step 3: Copy Files to Root Directory
-
-The server expects index files in the root directory:
-
-```bash
-cp faiss_schools.index ..
-cp faiss_schools_meta.pkl ..
-cd ..
 ```
 
 ## Metadata Format
@@ -220,15 +229,25 @@ You should rebuild the FAISS index when:
 
 **Quick Rebuild:**
 ```bash
-cd api
+cd scripts
 python build_faiss_store.py
-cp faiss_schools* ..
-cd ..
 # Restart server
 python api/llm_server_production.py
 ```
 
 ## Troubleshooting
+
+### Issue: Import errors after reorganization
+
+**Symptom:** `ModuleNotFoundError: No module named 'modules'`
+
+**Solution:** Ensure the path is added correctly in imports:
+```python
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from modules.module_name import function_name
+```
 
 ### Issue: Metadata count mismatch
 
@@ -238,11 +257,10 @@ python api/llm_server_production.py
 ✔️  Metadata loaded (1004 entries)
 ```
 
-**Solution:** Rebuild and copy files correctly
+**Solution:** Rebuild index
 ```bash
-cd api
+cd scripts
 python build_faiss_store.py
-cp faiss_schools.index faiss_schools_meta.pkl ..
 ```
 
 ### Issue: Wrong URLs in Related Sources
@@ -263,15 +281,6 @@ cp faiss_schools.index faiss_schools_meta.pkl ..
 2. Ensure `faiss_schools_meta.pkl` exists in root directory
 3. Check file permissions
 4. Restart server
-
-### Issue: Slow embedding generation
-
-**Symptom:** Building index takes too long
-
-**Solution:**
-- Use GPU if available (install `faiss-gpu` instead of `faiss-cpu`)
-- Consider using a smaller embedding model
-- Build index incrementally for large datasets
 
 ## Performance
 
@@ -294,7 +303,7 @@ export METADATA_PATH="custom_path/faiss_schools_meta.pkl"
 
 ### Embedding Model
 
-To change the embedding model, edit `rap_sql_schools_rag.py`:
+To change the embedding model, edit `modules/rap_sql_schools_rag.py`:
 
 ```python
 model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
@@ -337,8 +346,9 @@ For issues or questions:
 2. Verify SQL connection is working
 3. Ensure all dependencies are installed
 4. Check file permissions and paths
+5. Verify import paths are correct after reorganization
 
 ---
 
 **Last Updated:** February 2026
-**Version:** 1.0
+**Version:** 1.1 (Reorganized Structure)

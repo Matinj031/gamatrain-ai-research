@@ -4,17 +4,11 @@
 
 ### 1. Build Index
 ```bash
-cd api
+cd scripts
 python build_faiss_store.py
 ```
 
-### 2. Deploy Files
-```bash
-cp faiss_schools.index faiss_schools_meta.pkl ..
-cd ..
-```
-
-### 3. Start Server
+### 2. Start Server
 ```bash
 python api/llm_server_production.py
 ```
@@ -47,9 +41,10 @@ curl -X POST http://localhost:8000/v1/search/faiss \
 
 | File | Purpose | Location |
 |------|---------|----------|
-| `build_faiss_store.py` | Build index | `api/` |
-| `faiss_search_integration.py` | Search functions | `api/` |
-| `rap_sql_schools_rag.py` | Data fetching | `api/` |
+| `build_faiss_store.py` | Build index | `scripts/` |
+| `faiss_search_integration.py` | Search functions | `modules/` |
+| `rap_sql_schools_rag.py` | Data fetching | `modules/` |
+| `smart_response_formatter.py` | Response formatting | `modules/` |
 | `faiss_schools.index` | Vector index | Root |
 | `faiss_schools_meta.pkl` | Metadata | Root |
 
@@ -57,7 +52,7 @@ curl -X POST http://localhost:8000/v1/search/faiss \
 
 **Rebuild index:**
 ```bash
-cd api && python build_faiss_store.py && cp faiss_schools* .. && cd ..
+cd scripts && python build_faiss_store.py
 ```
 
 **Check metadata:**
@@ -74,7 +69,7 @@ cp faiss_schools_meta.pkl faiss_schools_meta.pkl.backup
 ## Troubleshooting
 
 **Problem:** Metadata count mismatch  
-**Solution:** `cd api && python build_faiss_store.py && cp faiss_schools* ..`
+**Solution:** `cd scripts && python build_faiss_store.py`
 
 **Problem:** FAISS search disabled  
 **Solution:** Ensure both `.index` and `.pkl` files exist in root directory

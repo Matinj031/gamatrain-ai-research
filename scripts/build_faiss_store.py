@@ -2,11 +2,19 @@
 """
 FAISS Index Builder for School Search
 Builds FAISS index from school embeddings with proper metadata (id, slug)
+
+Purpose: Build FAISS index from school embeddings
+Placement: scripts/ - Standalone/manual or scheduled task
+Usage: Run manually or via cron job to rebuild search index
 """
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
 import faiss
 import numpy as np
 import pickle
-from rap_sql_schools_rag import build_school_embeddings
+from modules.rap_sql_schools_rag import build_school_embeddings
 
 def build_faiss():
     """Build FAISS index from school embeddings"""
@@ -40,14 +48,14 @@ def build_faiss():
     index = faiss.IndexFlatL2(dimension)
     index.add(vectors)
     
-    # Save index
-    faiss.write_index(index, "faiss_schools.index")
-    print("[OK] FAISS index saved to faiss_schools.index")
+    # Save index to root directory (where server expects it)
+    faiss.write_index(index, "../faiss_schools.index")
+    print("[OK] FAISS index saved to ../faiss_schools.index")
     
     # Save metadata with correct filename
-    with open("faiss_schools_meta.pkl", "wb") as f:
+    with open("../faiss_schools_meta.pkl", "wb") as f:
         pickle.dump(metadata, f)
-    print("[OK] Metadata saved to faiss_schools_meta.pkl")
+    print("[OK] Metadata saved to ../faiss_schools_meta.pkl")
     
     print(f"\n[SUCCESS] FAISS index built with {len(rows)} schools")
     print(f"Dimension: {dimension}")
